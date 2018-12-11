@@ -1,0 +1,105 @@
+Resources:
+  Civ2InstallersBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: civ-2-installers
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow RDP to Civ2
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 3389
+        ToPort: 3389
+        CidrIp: 0.0.0.0/0
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: get-installers
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub ${Civ2InstallersBucket.Arn}/*
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: civ-2-server
+      Path: /
+      Roles:
+        - !Ref InstanceRole
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          SetupEnvironment:
+            - install-civ2
+        install-civ2:
+          files:
+            C:\Civ\Install-Civ2.ps1:
+              content: !Sub |
+                $7ZipInstaller = "7z1805-x64.msi"
+                $Civ2Archive = "civilization2gold_win_64bit.7z"
+                $CivDir = "C:\Civ"
+
+                Read-S3Object -BucketName ${Civ2InstallersBucket} -Key $Civ2Archive -File "$CivDir\$Civ2Archive"
+                Read-S3Object -BucketName ${Civ2InstallersBucket} -Key $7ZipInstaller -File "$CivDir\$7ZipInstaller"
+
+                msiexec.exe /i "$CivDir\$7ZipInstaller" /qb
+                & "C:\Program Files\7-Zip\7z.exe" x "$CivDir\$Civ2Archive" "-o$CivDir\Civ2"
+
+                Install-WindowsFeature Direct-Play
+          commands:
+            01-register-nessus-agent:
+              command: powershell.exe -ExecutionPolicy Bypass -File C:\Temp\Install-Civ2.ps1
+              waitAfterCompletion: 0
+    Properties:
+      LaunchTemplateData:
+        IamInstanceProfile:
+          Arn: !GetAtt InstanceProfile.Arn
+        SecurityGroupIds:
+          - !GetAtt SecurityGroup.GroupId
+        InstanceType: t2.medium
+        KeyName: matt_canty_work_mac
+        ImageId: ami-077b73dd304d0fd05
+        UserData:
+          Fn::Base64: !Sub |
+            <powershell>
+            Start-Transcript -Path C:\cfn\log\PowerShellUserDataTranscript.log -Force
+            Set-ExecutionPolicy Unrestricted -Force
+            Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+
+            cfn-init.exe -v --stack ${AWS::StackId} --resource LaunchTemplate --configsets SetupEnvironment --region ${AWS::Region}
+
+            Stop-Transcript
+            </powershell>
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AvailabilityZones:
+        - eu-west-2a
+        - eu-west-2b
+        - eu-west-2c
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      MaxSize: '1'
+      DesiredCapacity: '1'
+      MinSize: '0'
