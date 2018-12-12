@@ -57,13 +57,13 @@ Resources:
                 $7ZipInstaller = "7z1805-x64.msi"
                 $Civ2Archive = "civilization2gold_win_64bit.7z"
                 $CivDir = "C:\Civ"
-                Read-S3Object -BucketName civ-2-installers -Key $Civ2Archive -File "$CivDir\$Civ2Archive"
-                Read-S3Object -BucketName civ-2-installers -Key $7ZipInstaller -File "$CivDir\$7ZipInstaller"
-                Start-Process C:\Windows\System32\msiexec.exe -ArgumentList @("/i", "$CivDir\$7ZipInstaller", "/qb")
+                Read-S3Object -BucketName ${Civ2InstallersBucket} -Key $Civ2Archive -File "$CivDir\$Civ2Archive"
+                Read-S3Object -BucketName ${Civ2InstallersBucket} -Key $7ZipInstaller -File "$CivDir\$7ZipInstaller"
+                Start-Process C:\Windows\System32\msiexec.exe -ArgumentList @("/i", "$CivDir\$7ZipInstaller", "/qb") -Wait
                 & "C:\Program Files\7-Zip\7z.exe" x "$CivDir\$Civ2Archive" "-o$CivDir\Civ2"
                 Install-WindowsFeature Direct-Play
           commands:
-            01-register-nessus-agent:
+            install-civ2:
               command: powershell.exe -ExecutionPolicy Bypass -File C:\Civ\Install-Civ2.ps1
               waitAfterCompletion: 0
     Properties:
